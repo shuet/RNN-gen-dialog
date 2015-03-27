@@ -7,9 +7,9 @@
 
 It defines classes_and_methods
 
-@author:     user_name
+@author:     shuet
 
-@copyright:  2015 organization_name. All rights reserved.
+@copyright:  2015 LIA, Universit\'e d'Avignon. All rights reserved.
 
 @license:    license
 
@@ -18,18 +18,111 @@ It defines classes_and_methods
 '''
 
 import sys
-import os
+import os, re
 
 from optparse import OptionParser
+from collections import Counter
 
 __all__ = []
 __version__ = 0.1
 __date__ = '2015-03-27'
 __updated__ = '2015-03-27'
 
-DEBUG = 1
+DEBUG = 0
 TESTRUN = 0
 PROFILE = 0
+
+class TupleDialogAct:
+    ''' Define a dialog act'''
+    separator = '@@'
+    digit = 'DIGIT'
+    
+    def __init__(self, strDA):
+        self.dialAct = ''
+        self.dicSlot = dict() # slots with values
+        self.lSlot = [] # slots without values
+        self.parse(strDA)
+    
+    def parse(self, strDA):
+        m = re.match('([^\(]+)\(([^\)]*)\)', strDA)
+        if m:
+            self.dialAct = m.group(1) # dialog act
+            for pairSlot in m.group(2).split(','):
+                if '=' in pairSlot:
+                    lpSlot = pairSlot.split('=')
+                    assert(len(lpSlot) == 2)
+                    self.dicSlot[lpSlot[0]] = self.replaceNum(lpSlot[1].replace(' ', '_'))
+                elif pairSlot:
+                    self.lSlot.append(pairSlot)
+
+    def replaceNum(self, val):
+        return re.sub('[0-9]', TupleDialogAct.digit, val)
+
+    def toString(self, typeStr):
+        res = ''
+        if typeStr==2:
+            res = self.dialAct
+            for slot in sorted(self.lSlot):
+                res += slot +' '
+            res = res.rstrip()
+            for slot in sorted(self.dicSlot, key=self.dicSlot.get):
+                res += slot + '=' + self.dictSlot[slot]+' '
+            res = res.rstrip()
+        else:
+            for slot in sorted(self.lSlot):
+                res += self.dialAct + TupleDialogAct.separator +slot +' '
+            res = res.rstrip()
+            for slot in sorted(self.dicSlot, key=self.dicSlot.get):
+                res += self.dialAct + TupleDialogAct.separator + slot + TupleDialogAct.separator + self.dicSlot[slot]+' '
+            res = res.rstrip()
+            if res=='':
+                res = self.dialAct
+        print res
+        return res
+
+
+def readFile(infile, levelSplit):
+    '''Input format (system part):
+    request(food)#what kind of food would you like
+    offer(name=sitar tandoori)|inform(food=indian)#sitar tandoori serves indian food
+    canthelp(pricerange=moderate,food=swedish)
+    '''
+    inf = open(infile)
+    lInSent = []
+    lOutSent = []
+    for line in inf:
+        tab = line.strip().split('#')
+        if len(tab) == 2:
+            ltok = map(lambda x: TupleDialogAct(x).toString(levelSplit), tab[0].split('|'))
+            ltok2 = []
+            if levelSplit == 2:
+                # insert | between dialog acts
+                for tok in ltok:
+                    ltok2 += tok.split(' ')
+                    ltok2.append('|')
+                ltok2.pop()
+            else:
+                for tok in ltok:
+                    ltok2 += tok.split(' ')
+            lInSent.append(ltok2)
+            lOutSent.append(tab[1].split(' '))
+    inf.close()
+    return (lInSent, lOutSent)
+
+def buildIndex(lstLstTok):
+    '''Return index2tok and tok2index for a list of list of tokens
+    '''
+    c = Counter()
+    for lstTok in lstLstTok:
+        for tok in lstTok:
+            c[tok] += 1
+    
+    # list of (word, index)
+    ckeys = c.keys()
+    index2tok = {i: ckeys[i] for i in range(len(ckeys))}
+    tok2index = {ckeys[i]: i for i in range(len(ckeys))}
+    return (index2tok, tok2index) 
+    
 
 def main(argv=None):
     '''Command line options.'''
@@ -46,17 +139,17 @@ def main(argv=None):
 
     if argv is None:
         argv = sys.argv[1:]
+
     try:
         # setup option parser
         parser = OptionParser(version=program_version_string, epilog=program_longdesc, description=program_license)
         parser.add_option("-i", "--in", dest="infile", help="set input path [default: %default]", metavar="FILE")
         parser.add_option("-o", "--out", dest="outfile", help="set output path [default: %default]", metavar="FILE")
         parser.add_option("-v", "--verbose", dest="verbose", action="count", help="set verbosity level [default: %default]")
-
-        # Une modif
+        parser.add_option("-l", "--level-split", dest="levelSplit", type="int", help="set split level for dialog acts, slots and values [default: %default]")
 
         # set defaults
-        parser.set_defaults(outfile="./out.txt", infile="./in.txt")
+        parser.set_defaults(outfile="./out.txt", infile="./train.nlg.25", levelSplit=1)
 
         # process options
         (opts, args) = parser.parse_args(argv)
@@ -69,7 +162,11 @@ def main(argv=None):
             print("outfile = %s" % opts.outfile)
 
         # MAIN BODY #
-
+        (lInSent, lOutSent) = readFile(opts.infile, opts.levelSplit)
+        (index2da, da2index) = buildIndex(lInSent)
+        (index2word, word2index) = buildIndex(lOutSent)
+        
+        
     except Exception, e:
         indent = len(program_name) * " "
         sys.stderr.write(program_name + ": " + repr(e) + "\n")
